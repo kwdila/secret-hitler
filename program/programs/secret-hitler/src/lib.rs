@@ -1,34 +1,72 @@
 pub use crate::errors::GameErrorCode;
 pub use anchor_lang::prelude::*;
-pub use session_keys::{session_auth_or, Session, SessionError};
+
 pub mod constants;
 pub mod enums;
 pub mod errors;
 pub mod helpers;
 pub mod instructions;
 pub mod state;
-use instructions::*;
 
-declare_id!("Ha5ogESTHZTaTesZAdX67CrRLsp7RTHf8MPkFRhknNLS");
+pub use enums::*;
+pub use instructions::*;
+
+declare_id!("J96FSD2dzDjeUwPTZpnqvjDc91kdvKC8HpTBdBCCFaRC");
 
 #[program]
 pub mod secret_hitler {
-
     use super::*;
 
-    pub fn init_player(ctx: Context<InitPlayer>, _level_seed: String) -> Result<()> {
-        init_player::init_player(ctx)
+    pub fn initialize_game(
+        ctx: Context<InitializeGame>,
+        max_players: u8,
+        turn_duration: i64,
+        entry_deposit: Option<u64>,
+        bet_amount: Option<u64>,
+    ) -> Result<()> {
+        ctx.accounts.init_game(
+            max_players,
+            turn_duration,
+            entry_deposit,
+            bet_amount,
+            ctx.bumps,
+        )?;
+        Ok(())
     }
-
-    // This function lets the player chop a tree and get 1 wood. The session_auth_or macro
-    // lets the player either use their session token or their main wallet. (The counter is only
-    // there so that the player can do multiple transactions in the same block. Without it multiple transactions
-    // in the same block would result in the same signature and therefore fail.)
-    #[session_auth_or(
-        ctx.accounts.player.authority.key() == ctx.accounts.signer.key(),
-        GameErrorCode::WrongAuthority
-    )]
-    pub fn chop_tree(ctx: Context<ChopTree>, _level_seed: String, counter: u16) -> Result<()> {
-        chop_tree::chop_tree(ctx, counter, 1)
+    pub fn join_game(ctx: Context<JoinGame>) -> Result<()> {
+        ctx.accounts.add_player(ctx.bumps)?;
+        Ok(())
+    }
+    pub fn leave_game(ctx: Context<LeaveGame>) -> Result<()> {
+        ctx.accounts.remove_player()?;
+        Ok(())
+    }
+    pub fn start_game(ctx: Context<StartGame>) -> Result<()> {
+        ctx.accounts.start()?;
+        Ok(())
+    }
+    pub fn nominate_chancelor(ctx: Context<NominateChancellor>, player: Pubkey) -> Result<()> {
+        ctx.accounts.nominated_chancellor(player, ctx.bumps)?;
+        Ok(())
+    }
+    pub fn vote_chancellor(ctx: Context<VoteChancellor>, vote: PlayerVote) -> Result<()> {
+        ctx.accounts.vote(vote)?;
+        Ok(())
+    }
+    pub fn enact_policy(ctx: Context<EnactPolicy>, policy: Option<PolicyCard>) -> Result<()> {
+        ctx.accounts.enact_policy(policy)?;
+        Ok(())
+    }
+    pub fn chancellor_initiate_veto(ctx: Context<ChancellorVeto>) -> Result<()> {
+        ctx.accounts.initiate_veto()?;
+        Ok(())
+    }
+    pub fn president_answer_veto(ctx: Context<PresidentVeto>, accept_veto: bool) -> Result<()> {
+        ctx.accounts.answer_chancellor_veto(accept_veto)?;
+        Ok(())
+    }
+    pub fn eliminate_inactive_player(ctx: Context<EliminatePlayer>) -> Result<()> {
+        ctx.accounts.eliminate_player()?;
+        Ok(())
     }
 }

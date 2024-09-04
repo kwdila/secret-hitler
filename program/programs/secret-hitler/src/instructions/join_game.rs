@@ -3,10 +3,10 @@ use anchor_lang::{
     system_program::{transfer, Transfer},
 };
 
-use crate::{enums::GameState, errors::GameErrorCode};
+use crate::{GameState, GameErrorCode};
 use crate::state::{
-    game_data::GameData,
-    player_data::PlayerData,
+    GameData,
+    PlayerData,
 };
 
 #[derive(Accounts)]
@@ -26,19 +26,21 @@ pub struct JoinGame<'info> {
     )]
     pub player_data: Account<'info, PlayerData>,
     #[account(
+        mut,
         seeds= [
             b"deposit_vault",
             game_data.key().to_bytes().as_ref()
         ],
-        bump = game_data.deposit_vault_bump.unwrap(),
+        bump = game_data.deposit_vault_bump.ok_or(GameErrorCode::DepositNotFound)?,
     )]
     pub deposit_vault: Option<SystemAccount<'info>>,
     #[account(
+        mut,
         seeds= [
-        b"deposit_vault",
-        game_data.key().to_bytes().as_ref()
-    ],
-        bump = game_data.bet_vault_bump.unwrap(),
+            b"bet_vault",
+            game_data.key().to_bytes().as_ref()
+        ],
+        bump = game_data.bet_vault_bump.ok_or(GameErrorCode::BetNotFound)?,
     )]
     pub bet_vault: Option<SystemAccount<'info>>,
 
@@ -50,11 +52,11 @@ pub struct JoinGame<'info> {
         ],
         bump = game_data.bump,
 
-        constraint = game_data.game_state == GameState::Setup @GameErrorCode::GameNotInSetupState,
-        constraint = !game_data.players.contains(player.key) @GameErrorCode::PlayerAlreadyJoined, 
-        constraint = game_data.player_count < game_data.max_players @GameErrorCode::MaxPlayersReached,
-        constraint = game_data.entry_deposit.is_some() == deposit_vault.is_some() @GameErrorCode::DepositVaultNotFound,
-        constraint = game_data.bet_amount.is_some() == bet_vault.is_some() @GameErrorCode::BetVaultNotFound,
+        constraint = game_data.game_state == GameState::Setup @GameErrorCode::InvalidGameState,
+        constraint = !game_data.is_in_game(player.key) @GameErrorCode::PlayerAlreadyJoined, 
+        constraint = game_data.active_players.len() < game_data.max_players as usize @GameErrorCode::MaxPlayersReached,
+        constraint = game_data.entry_deposit.is_some() == deposit_vault.is_some() @GameErrorCode::DepositNotFound,
+        constraint = game_data.bet_amount.is_some() == bet_vault.is_some() @GameErrorCode::BetNotFound,
     )]
     pub game_data: Account<'info, GameData>,
     pub system_program: Program<'info, System>,
@@ -67,7 +69,7 @@ impl<'info> JoinGame<'info> {
             Some(amount) => {
                 let accounts = Transfer {
                     from: self.player.to_account_info(),
-                    to: self.deposit_vault.as_ref().unwrap().to_account_info(), //this is checked in game_data account constraints
+                    to: self.deposit_vault.as_ref().ok_or(GameErrorCode::DepositNotFound)?.to_account_info(), // this is checked in game_data account constraints
                 };
 
                 let ctx = CpiContext::new(self.system_program.to_account_info(), accounts);
@@ -80,7 +82,7 @@ impl<'info> JoinGame<'info> {
             Some(amount) => {
                 let accounts = Transfer {
                     from: self.player.to_account_info(),
-                    to: self.bet_vault.as_ref().unwrap().to_account_info(), //this is checked in game_data account constraints
+                    to: self.bet_vault.as_ref().ok_or(GameErrorCode::BetNotFound)?.to_account_info(), // this is checked in game_data account constraints
                 };
 
                 let ctx = CpiContext::new(self.system_program.to_account_info(), accounts);
@@ -89,12 +91,11 @@ impl<'info> JoinGame<'info> {
             None => (),
         }
 
-        self.game_data.players.push(self.player.key());
-        self.game_data.player_count += 1;
+        self.game_data.active_players.push(self.player.key());
 
         self.player_data.set_inner(PlayerData {
             role: None,
-            is_in_game: true,
+            is_investigated:false,
             bump: bumps.player_data,
         });
 
